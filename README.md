@@ -19,15 +19,15 @@ Only the gateway is published on the host. Services trust the `X-User-*` headers
 
 ## Repositories
 
-One repo per service. This repo (**genkan-setup**) is the dev workspace: each service is a git submodule under `src/`, plus the compose files and Kubernetes manifests.
+One repo per service. This repo (**setup**) is the dev workspace: each service is a git submodule under `src/`, plus the compose files and Kubernetes manifests.
 
 ```
-genkan-setup/
+setup/
   src/
-    shared/         -> genkan-shared        NuGet package Genkan.Shared (GitHub Packages)
-    gateway/        -> genkan-gateway       Docker image ghcr.io/genkan-software/genkan-gateway
-    auth/           -> genkan-auth          Docker image ghcr.io/genkan-software/genkan-auth
-    notification/   -> genkan-notification  Docker image ghcr.io/genkan-software/notification
+    shared/         -> shared        NuGet package Genkan.Shared (GitHub Packages)
+    gateway/        -> gateway       Docker image ghcr.io/genkan-software/gateway
+    auth/           -> auth          Docker image ghcr.io/genkan-software/auth
+    notification/   -> notification  Docker image ghcr.io/genkan-software/notification
     migrator/       -> migrator      Docker image ghcr.io/software/migrator
   docker-compose.yml        dev: builds from src/*
   docker-compose.prod.yml   prod: pulls the published images
@@ -38,6 +38,33 @@ genkan-setup/
 Services depend on Shared only through the NuGet package (`Genkan.Shared`, pinned version in each csproj; Dependabot bumps it).
 Each service is layered as before: `Api -> Application, Domain, Infrastructure` (Notification: `Api -> Application, Rabbit`, `Application -> Infrastructure, Firebase, Domain`).
 
+## Developing Genkan.Shared (no push / merge / tag)
+
+In this workspace the services use the **local** `src/shared` source automatically: each service has a `Directory.Build.targets` that
+swaps the `Genkan.Shared` package for a project reference when `../shared` exists. So:
+
+```bash
+git clone --recurse-submodules https://github.com/software/setup.git && cd setup
+docker compose up -d postgres redis rabbitmq        # infra only
+dotnet run --project src/migrator/src/Genkan.Migrator
+dotnet run --project src/auth/src/Genkan.Auth.Api   # same for gateway / notification
+```
+
+Edit anything in `src/shared`, rerun the service, it is picked up. Open `Genkan.slnx` in your IDE to see and debug everything in one window.
+Check which one is used: `dotnet msbuild src/auth/src/Genkan.Auth.Api -getItem:ProjectReference` (should list Genkan.Shared.csproj).
+Force the package instead: `-p:UseLocalShared=false`.
+
+The Docker dev stack (`docker-compose.yml`) builds each service in isolation, so it uses the **published** package, not your local Shared.
+When you need your unreleased Shared in Docker/CI, publish a prerelease straight from your feature branch, no merge needed:
+
+```bash
+cd src/shared && git checkout -b feat/xyz   # ... commit ...
+git tag v1.1.0-rc.1 && git push origin feat/xyz v1.1.0-rc.1     # publishes Genkan.Shared 1.1.0-rc.1
+# in the service: <PackageReference Include="Genkan.Shared" Version="1.1.0-rc.1" />
+```
+
+When it is merged, tag the real `v1.1.0` and bump the services to it.
+
 ## Releases
 
 1. **Shared**: in `shared`, `git tag vX.Y.Z && git push --tags` -> package published. Bump the consumers (Dependabot PRs).
@@ -46,12 +73,12 @@ Each service is layered as before: `Api -> Application, Domain, Infrastructure` 
    (not in shared), and each repo's `docker-publish` workflow builds `ghcr.io/software/<service>:X.Y.Z`.
 3. Deploy: `scripts/pin-images.sh X.Y.Z && k8s/deploy.sh`.
 
-Org notes (genkan-software): Settings > Actions > General > Workflow permissions = read and write; fine-grained PATs must be allowed for the org and created with the org as resource owner.
+Org notes (software): Settings > Actions > General > Workflow permissions = read and write; fine-grained PATs must be allowed for the org and created with the org as resource owner.
 
 Secrets: `RELEASE_TOKEN` on this repo (fine-grained PAT, Contents read/write on the four service repos; a tag made with the default token would not trigger their workflows).
 `PACKAGES_TOKEN` on each service repo only if the default token cannot read the Genkan.Shared package.
 
-First time: create the six empty repos in the genkan-software org on GitHub (shared, -gateway, -auth, -notification, -migrator, -setup), then run `scripts/push-all.sh` (git only, no gh needed): it pushes each folder of this workspace and records them as submodules. Later: `git clone --recurse-submodules` or `scripts/bootstrap.sh`.
+First time: create the six empty repos in the software org on GitHub (shared, -gateway, -auth, -notification, -migrator, -setup), then run `scripts/push-all.sh` (git only, no gh needed): it pushes each folder of this workspace and records them as submodules. Later: `git clone --recurse-submodules` or `scripts/bootstrap.sh`.
 
 ## Run
 

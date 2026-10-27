@@ -75,7 +75,7 @@ services:
   # Owns the database structure: applies the EF Core migrations, then exits (restart: "no").
   # auth and notification only start after it completed successfully.
   migrator:
-    image: ghcr.io/genkan-software/genkan-migrator:latest
+    image: ghcr.io/genkan-software/migrator:latest
     restart: "no"
     environment:
       <<: *db-env
@@ -85,7 +85,7 @@ services:
     logging: *logging
 
   auth:
-    image: ghcr.io/genkan-software/genkan-auth:latest
+    image: ghcr.io/genkan-software/auth:latest
     restart: unless-stopped
     environment:
       <<: [*service-env, *db-env, *redis-env]
@@ -105,7 +105,7 @@ services:
     logging: *logging
 
   notification:
-    image: ghcr.io/genkan-software/genkan-notification:latest
+    image: ghcr.io/genkan-software/notification:latest
     restart: unless-stopped
     environment:
       <<: [*service-env, *db-env]
@@ -138,7 +138,7 @@ services:
     logging: *logging
 
   gateway:
-    image: ghcr.io/genkan-software/genkan-gateway:latest
+    image: ghcr.io/genkan-software/gateway:latest
     restart: unless-stopped
     environment:
       <<: [*service-env, *redis-env]

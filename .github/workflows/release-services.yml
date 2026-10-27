@@ -1,6 +1,6 @@
 name: release-services
 # Tag this repo (vX.Y.Z) -> every service repo gets a release vX.Y.Z at the commit pinned by its submodule here,
-# which triggers each repo's docker-publish workflow (image :X.Y.Z). genkan-shared is deliberately NOT released here.
+# which triggers each repo's docker-publish workflow (image :X.Y.Z). shared is deliberately NOT released here.
 on:
   push:
     tags: ["v*.*.*"]
@@ -30,7 +30,7 @@ jobs:
         run: |
           set -euo pipefail
           svc="${{ matrix.service }}"
-          repo="$OWNER/genkan-$svc"
+          repo="$OWNER/$svc"
           # commit the submodule points to at this tag
           sha="$(gh api "repos/${{ github.repository }}/contents/src/$svc?ref=$TAG" --jq .sha)"
           echo "$repo @ $sha"
@@ -54,10 +54,10 @@ jobs:
           cat > notes.md <<EOF
           Images published for this release:
 
-          - ghcr.io/genkan-software/genkan-gateway:$v
-          - ghcr.io/genkan-software/genkan-auth:$v
-          - ghcr.io/genkan-software/genkan-notification:$v
-          - ghcr.io/genkan-software/genkan-migrator:$v
+          - ghcr.io/genkan-software/gateway:$v
+          - ghcr.io/genkan-software/auth:$v
+          - ghcr.io/genkan-software/notification:$v
+          - ghcr.io/genkan-software/migrator:$v
 
           Deploy: \`scripts/pin-images.sh $v\` then \`k8s/deploy.sh\`, or set the tags in docker-compose.prod.yml.
           EOF

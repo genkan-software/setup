@@ -27,8 +27,8 @@ genkan-setup/
     shared/         -> genkan-shared        NuGet package Genkan.Shared (GitHub Packages)
     gateway/        -> genkan-gateway       Docker image ghcr.io/genkan-software/genkan-gateway
     auth/           -> genkan-auth          Docker image ghcr.io/genkan-software/genkan-auth
-    notification/   -> genkan-notification  Docker image ghcr.io/genkan-software/genkan-notification
-    migrator/       -> genkan-migrator      Docker image ghcr.io/genkan-software/genkan-migrator
+    notification/   -> genkan-notification  Docker image ghcr.io/genkan-software/notification
+    migrator/       -> migrator      Docker image ghcr.io/software/migrator
   docker-compose.yml        dev: builds from src/*
   docker-compose.prod.yml   prod: pulls the published images
   k8s/                      kustomize manifests + deploy.sh
@@ -40,10 +40,10 @@ Each service is layered as before: `Api -> Application, Domain, Infrastructure` 
 
 ## Releases
 
-1. **Shared**: in `genkan-shared`, `git tag vX.Y.Z && git push --tags` -> package published. Bump the consumers (Dependabot PRs).
+1. **Shared**: in `shared`, `git tag vX.Y.Z && git push --tags` -> package published. Bump the consumers (Dependabot PRs).
 2. **Services**: in this repo, `scripts/update-submodules.sh`, commit, then `git tag vX.Y.Z && git push --follow-tags`.
    The `release-services` workflow creates a release `vX.Y.Z` in gateway, auth, notification and migrator at the commit pinned here
-   (not in shared), and each repo's `docker-publish` workflow builds `ghcr.io/genkan-software/genkan-<service>:X.Y.Z`.
+   (not in shared), and each repo's `docker-publish` workflow builds `ghcr.io/software/<service>:X.Y.Z`.
 3. Deploy: `scripts/pin-images.sh X.Y.Z && k8s/deploy.sh`.
 
 Org notes (genkan-software): Settings > Actions > General > Workflow permissions = read and write; fine-grained PATs must be allowed for the org and created with the org as resource owner.
@@ -51,7 +51,7 @@ Org notes (genkan-software): Settings > Actions > General > Workflow permissions
 Secrets: `RELEASE_TOKEN` on this repo (fine-grained PAT, Contents read/write on the four service repos; a tag made with the default token would not trigger their workflows).
 `PACKAGES_TOKEN` on each service repo only if the default token cannot read the Genkan.Shared package.
 
-First time: create the six empty repos in the genkan-software org on GitHub (genkan-shared, -gateway, -auth, -notification, -migrator, -setup), then run `scripts/push-all.sh` (git only, no gh needed): it pushes each folder of this workspace and records them as submodules. Later: `git clone --recurse-submodules` or `scripts/bootstrap.sh`.
+First time: create the six empty repos in the genkan-software org on GitHub (shared, -gateway, -auth, -notification, -migrator, -setup), then run `scripts/push-all.sh` (git only, no gh needed): it pushes each folder of this workspace and records them as submodules. Later: `git clone --recurse-submodules` or `scripts/bootstrap.sh`.
 
 ## Run
 

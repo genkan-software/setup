@@ -30,7 +30,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: migrator
-          image: ghcr.io/genkan-software/genkan-migrator:latest
+          image: ghcr.io/genkan-software/migrator:latest
           imagePullPolicy: IfNotPresent
           envFrom:
             - secretRef:

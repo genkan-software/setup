@@ -39,7 +39,7 @@ spec:
               app.kubernetes.io/name: notification
       containers:
         - name: notification
-          image: ghcr.io/genkan-software/genkan-notification:latest
+          image: ghcr.io/genkan-software/notification:latest
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

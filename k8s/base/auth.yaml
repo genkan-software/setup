@@ -39,7 +39,7 @@ spec:
               app.kubernetes.io/name: auth
       containers:
         - name: auth
-          image: ghcr.io/genkan-software/genkan-auth:latest
+          image: ghcr.io/genkan-software/auth:latest
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

@@ -22,13 +22,13 @@ labels:
 
 # One place to pin the version of every image: a tag published by the workflow (sha-1a2b3c4, 1.4.0, main, latest).
 images:
-  - name: ghcr.io/genkan-software/genkan-gateway
+  - name: ghcr.io/genkan-software/gateway
     newTag: latest
-  - name: ghcr.io/genkan-software/genkan-auth
+  - name: ghcr.io/genkan-software/auth
     newTag: latest
-  - name: ghcr.io/genkan-software/genkan-lab
+  - name: ghcr.io/genkan-software/lab
     newTag: latest
-  - name: ghcr.io/genkan-software/genkan-notification
+  - name: ghcr.io/genkan-software/notification
     newTag: latest
-  - name: ghcr.io/genkan-software/genkan-migrator
+  - name: ghcr.io/genkan-software/migrator
     newTag: latest

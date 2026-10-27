@@ -10,7 +10,7 @@ spec:
   ingressClassName: nginx
   tls:
     - hosts: [genkan.example.com]
-      secretName: genkan-tls
+      secretName: tls
   rules:
     - host: genkan.example.com
       http:

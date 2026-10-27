@@ -11,7 +11,7 @@ push_repo() {
   local n="$1"
   ( cd "src/$n"
     [ -d .git ] || { git init -q -b main; git add -A; git commit -q -m "chore: initial import (split from notification-microservice)"; }
-    # Maps the folder name directly to the repo name without a 'genkan-' prefix
+    # Maps the folder name directly to the repo name without a '' prefix
     git remote get-url origin >/dev/null 2>&1 || git remote add origin "$BASE/$n.git"
     git push -u origin main )
 }

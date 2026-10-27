@@ -39,7 +39,7 @@ spec:
               app.kubernetes.io/name: gateway
       containers:
         - name: gateway
-          image: ghcr.io/genkan-software/genkan-gateway:latest
+          image: ghcr.io/genkan-software/gateway:latest
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

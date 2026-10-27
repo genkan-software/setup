@@ -41,7 +41,7 @@ spec:
               app.kubernetes.io/name: lab
       containers:
         - name: lab
-          image: ghcr.io/genkan-software/genkan-lab:latest
+          image: ghcr.io/genkan-software/lab:latest
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

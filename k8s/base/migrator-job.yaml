@@ -1,0 +1,44 @@
+# Owns the database structure: applies the EF Core migrations once, then exits. auth, lab and notification assume the tables exist,
+# so this Job must be complete before they start (deploy.sh does it in that order). A Job cannot be updated in place:
+# delete it before applying a new version (deploy.sh does that too).
+#
+# GitOps instead of deploy.sh? Argo CD: add the annotations  argocd.argoproj.io/hook: PreSync  and
+# argocd.argoproj.io/hook-delete-policy: BeforeHookCreation  here. Helm: helm.sh/hook: pre-install,pre-upgrade.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migrator
+  labels:
+    app.kubernetes.io/name: migrator
+    app.kubernetes.io/component: migrator
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 600
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: migrator
+        app.kubernetes.io/component: migrator
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1654
+        runAsGroup: 1654
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: migrator
+          image: ghcr.io/genkan-software/genkan-migrator:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - secretRef:
+                name: migrator-secrets
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { memory: 256Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]

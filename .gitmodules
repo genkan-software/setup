@@ -1,0 +1,20 @@
+[submodule "src/shared"]
+	path = src/shared
+	url = https://github.com/genkan-software/shared.git
+	branch = main
+[submodule "src/gateway"]
+	path = src/gateway
+	url = https://github.com/genkan-software/gateway.git
+	branch = main
+[submodule "src/auth"]
+	path = src/auth
+	url = https://github.com/genkan-software/auth.git
+	branch = main
+[submodule "src/notification"]
+	path = src/notification
+	url = https://github.com/genkan-software/notification.git
+	branch = main
+[submodule "src/migrator"]
+	path = src/migrator
+	url = https://github.com/genkan-software/migrator.git
+	branch = main

@@ -1,0 +1,24 @@
+# Only the gateway is exposed. Adapt the host, the ingress class and the TLS secret (cert-manager: add its cluster-issuer annotation).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: genkan
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: 1m
+    # cert-manager.io/cluster-issuer: letsencrypt
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [genkan.example.com]
+      secretName: genkan-tls
+  rules:
+    - host: genkan.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: gateway
+                port:
+                  name: http

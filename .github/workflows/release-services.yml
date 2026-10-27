@@ -1,0 +1,64 @@
+name: release-services
+# Tag this repo (vX.Y.Z) -> every service repo gets a release vX.Y.Z at the commit pinned by its submodule here,
+# which triggers each repo's docker-publish workflow (image :X.Y.Z). genkan-shared is deliberately NOT released here.
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag of this repo to release (e.g. v1.2.0)"
+        required: true
+
+env:
+  OWNER: genkan-software
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions: { contents: read }
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [gateway, auth, notification, migrator]     # no "shared"
+    steps:
+      - name: Release ${{ matrix.service }}
+        env:
+          # PAT (fine-grained: Contents read/write on the service repos). A tag created with GITHUB_TOKEN would NOT trigger their workflows.
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          svc="${{ matrix.service }}"
+          repo="$OWNER/genkan-$svc"
+          # commit the submodule points to at this tag
+          sha="$(gh api "repos/${{ github.repository }}/contents/src/$svc?ref=$TAG" --jq .sha)"
+          echo "$repo @ $sha"
+          if gh release view "$TAG" --repo "$repo" >/dev/null 2>&1; then
+            echo "$repo already has $TAG, skipping"; exit 0
+          fi
+          pre=""; [[ "$TAG" == *-* ]] && pre="--prerelease"
+          gh release create "$TAG" --repo "$repo" --target "$sha" --title "$TAG" --generate-notes $pre
+          echo "- $repo $TAG ($sha)" >> "$GITHUB_STEP_SUMMARY"
+
+  setup-release:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions: { contents: write }
+    steps:
+      - name: GitHub release for the setup repo
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          v="${TAG#v}"
+          cat > notes.md <<EOF
+          Images published for this release:
+
+          - ghcr.io/genkan-software/genkan-gateway:$v
+          - ghcr.io/genkan-software/genkan-auth:$v
+          - ghcr.io/genkan-software/genkan-notification:$v
+          - ghcr.io/genkan-software/genkan-migrator:$v
+
+          Deploy: \`scripts/pin-images.sh $v\` then \`k8s/deploy.sh\`, or set the tags in docker-compose.prod.yml.
+          EOF
+          gh release create "$TAG" --repo "${{ github.repository }}" --title "$TAG" --notes-file notes.md || true

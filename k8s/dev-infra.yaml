@@ -1,0 +1,111 @@
+# PostgreSQL, Redis and RabbitMQ as single pods, to try the stack on kind / minikube:
+#   kubectl apply -f k8s/dev-infra.yaml
+# NOT for production (no replication, no backups). There use managed services or operators (CloudNativePG, the RabbitMQ Cluster
+# Operator, a managed Redis) and point the connection strings in the secrets at them.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: { name: postgres, namespace: genkan }
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels: { app.kubernetes.io/name: postgres }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: postgres }
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:17
+          ports: [{ name: pg, containerPort: 5432 }]
+          env:
+            - { name: POSTGRES_DB, value: genkan }
+            - { name: POSTGRES_USER, value: genkan }
+            - { name: PGDATA, value: /var/lib/postgresql/data/pgdata }
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: postgres-auth, key: POSTGRES_PASSWORD } }
+          readinessProbe:
+            exec: { command: ["pg_isready", "-U", "genkan", "-d", "genkan"] }
+            periodSeconds: 5
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/postgresql/data }
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources: { requests: { storage: 5Gi } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: postgres, namespace: genkan }
+spec:
+  selector: { app.kubernetes.io/name: postgres }
+  ports: [{ name: pg, port: 5432, targetPort: pg }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: redis, namespace: genkan }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app.kubernetes.io/name: redis }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: redis }
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          command: ["sh", "-c", "exec redis-server --requirepass \"$REDIS_PASSWORD\""]
+          ports: [{ name: redis, containerPort: 6379 }]
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom: { secretKeyRef: { name: redis-auth, key: REDIS_PASSWORD } }
+          readinessProbe:
+            tcpSocket: { port: redis }
+            periodSeconds: 5
+          # sessions live here: they are lost when this dev pod restarts (users have to log in again)
+---
+apiVersion: v1
+kind: Service
+metadata: { name: redis, namespace: genkan }
+spec:
+  selector: { app.kubernetes.io/name: redis }
+  ports: [{ name: redis, port: 6379, targetPort: redis }]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: { name: rabbitmq, namespace: genkan }
+spec:
+  serviceName: rabbitmq
+  replicas: 1
+  selector:
+    matchLabels: { app.kubernetes.io/name: rabbitmq }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: rabbitmq }
+    spec:
+      containers:
+        - name: rabbitmq
+          image: rabbitmq:4-alpine
+          ports: [{ name: amqp, containerPort: 5672 }]
+          envFrom:
+            - secretRef: { name: rabbitmq-auth }
+          readinessProbe:
+            exec: { command: ["rabbitmq-diagnostics", "-q", "ping"] }
+            periodSeconds: 10
+            timeoutSeconds: 5
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/rabbitmq }
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources: { requests: { storage: 2Gi } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: rabbitmq, namespace: genkan }
+spec:
+  selector: { app.kubernetes.io/name: rabbitmq }
+  ports: [{ name: amqp, port: 5672, targetPort: amqp }]

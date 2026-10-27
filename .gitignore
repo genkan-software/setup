@@ -1,0 +1,4 @@
+.env
+.env.prod
+secrets/
+k8s/secrets.yaml

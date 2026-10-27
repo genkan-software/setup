@@ -1,0 +1,21 @@
+# Use k8s/deploy.sh --keda     (needs KEDA: https://keda.sh/docs/deploy/)
+# Same stack, but the notification Deployment is scaled by the RabbitMQ queue length (and CPU) instead of CPU only.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: genkan
+
+resources:
+  - ../../base
+  - notification-scaledobject.yaml
+
+patches:
+  # KEDA creates its own HorizontalPodAutoscaler for the ScaledObject: two autoscalers on one Deployment fight each other
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: notification
+    patch: |-
+      $patch: delete
+      apiVersion: autoscaling/v2
+      kind: HorizontalPodAutoscaler
+      metadata:
+        name: notification

@@ -1,0 +1,169 @@
+# Production stack: pulls the images published by each service repo's docker-publish workflow (nothing is built on the server).
+#
+#   cp .env.prod.example .env.prod          # then change every value
+#   docker login ghcr.io                    # only if the packages are private
+#   docker compose --env-file .env.prod -f docker-compose.prod.yml pull
+#   docker compose --env-file .env.prod -f docker-compose.prod.yml up -d
+#
+# Only the gateway is published on the host (bound to 127.0.0.1 by default: put a TLS reverse proxy in front of it).
+# Postgres, Redis and RabbitMQ are reachable from the compose network only.
+name: genkan
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-service-env: &service-env
+  ASPNETCORE_ENVIRONMENT: Production
+  ASPNETCORE_HTTP_PORTS: "8080"
+
+x-db-env: &db-env
+  ConnectionStrings__Postgres: Host=postgres;Database=genkan;Username=genkan;Password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.prod}
+
+x-redis-env: &redis-env
+  ConnectionStrings__Redis: redis:6379,password=${REDIS_PASSWORD:?set REDIS_PASSWORD in .env.prod},abortConnect=false
+
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: genkan
+      POSTGRES_USER: genkan
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.prod}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U genkan -d genkan"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    logging: *logging
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:?set REDIS_PASSWORD in .env.prod}"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    volumes:
+      - redis:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    logging: *logging
+
+  rabbitmq:
+    image: rabbitmq:4-alpine
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?set RABBITMQ_USER in .env.prod}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD in .env.prod}
+    volumes:
+      - rabbitmq:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    logging: *logging
+
+  # Owns the database structure: applies the EF Core migrations, then exits (restart: "no").
+  # auth and notification only start after it completed successfully.
+  migrator:
+    image: ghcr.io/genkan-software/genkan-migrator:latest
+    restart: "no"
+    environment:
+      <<: *db-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging: *logging
+
+  auth:
+    image: ghcr.io/genkan-software/genkan-auth:latest
+    restart: unless-stopped
+    environment:
+      <<: [*service-env, *db-env, *redis-env]
+      Seed__AdminEmail: ${ADMIN_EMAIL:?set ADMIN_EMAIL in .env.prod}
+      Seed__AdminPassword: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env.prod}
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+    logging: *logging
+
+  notification:
+    image: ghcr.io/genkan-software/genkan-notification:latest
+    restart: unless-stopped
+    environment:
+      <<: [*service-env, *db-env]
+      RabbitMq__Host: rabbitmq
+      RabbitMq__User: ${RABBITMQ_USER}
+      RabbitMq__Password: ${RABBITMQ_PASSWORD}
+      Firebase__Enabled: ${FIREBASE_ENABLED:-true}
+      Firebase__ProjectId: ${FIREBASE_PROJECT_ID:-}
+      # Public identifiers served to the mobile app by GET /notifications/firebase-config (not secrets)
+      Firebase__Client__ApiKey: ${FIREBASE_CLIENT_API_KEY:-}
+      Firebase__Client__ApplicationId: ${FIREBASE_CLIENT_APPLICATION_ID:-}
+      Firebase__Client__MessagingSenderId: ${FIREBASE_CLIENT_MESSAGING_SENDER_ID:-}
+      Firebase__Client__ProjectId: ${FIREBASE_PROJECT_ID:-}
+      # Service-account key (secret), mounted read-only by the secret below
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/firebase.json
+    secrets:
+      - source: firebase_service_account
+        target: firebase.json
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+    logging: *logging
+
+  gateway:
+    image: ghcr.io/genkan-software/genkan-gateway:latest
+    restart: unless-stopped
+    environment:
+      <<: [*service-env, *redis-env]
+      Services__AuthUrl: http://auth:8080
+      Swagger__Enabled: ${SWAGGER_ENABLED:-false}   # true = combined Swagger UI of auth + notification on /swagger (keep false in production)
+      RateLimiting__Store: ${RATE_LIMIT_STORE:-Redis}   # Memory | Redis (Redis = counters shared by every gateway instance)
+      RateLimiting__Enabled: ${RATE_LIMIT_ENABLED:-true}
+      RateLimiting__Policies__user__Key: ${RATE_LIMIT_USER_KEY:-user}   # the key used to identify a user (e.g. "user" = X-User-Id header, "ip" = client IP)
+      RateLimiting__Policies__user__Capacity: ${RATE_LIMIT_USER_CAPACITY:-30}
+      RateLimiting__Policies__user__RefillTokens: ${RATE_LIMIT_USER_REFILL_TOKENS:-30}
+      RateLimiting__Policies__user__RefillPeriodSeconds: ${RATE_LIMIT_USER_REFILL_PERIOD_SECONDS:-60}
+    depends_on:
+      auth:
+        condition: service_healthy
+      notification:
+        condition: service_healthy
+    ports:
+      - "${GATEWAY_BIND:-127.0.0.1}:${GATEWAY_PORT:-8080}:8080"   # the only service exposed to the host
+    logging: *logging
+
+secrets:
+  firebase_service_account:
+    file: ./secrets/firebase-service-account.json
+
+volumes:
+  pgdata:
+  redis:
+  rabbitmq:

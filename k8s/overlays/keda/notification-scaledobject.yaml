@@ -1,0 +1,44 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: notification
+spec:
+  scaleTargetRef:
+    name: notification
+  minReplicaCount: 2
+  maxReplicaCount: 10
+  pollingInterval: 15
+  cooldownPeriod: 300
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 300
+          policies:
+            - { type: Pods, value: 1, periodSeconds: 60 }
+  triggers:
+    # Events waiting in the queue the notification service consumes (Topology.NotificationQueue).
+    # value = messages per replica; each replica takes 10 at a time (prefetch), so 50 means a backlog of about 5 rounds per replica.
+    - type: rabbitmq
+      metadata:
+        protocol: amqp
+        queueName: notification-service
+        mode: QueueLength
+        value: "50"
+      authenticationRef:
+        name: keda-rabbitmq
+    # The HTTP side (inbox, push endpoints) still needs CPU headroom
+    - type: cpu
+      metricType: Utilization
+      metadata:
+        value: "70"
+---
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: keda-rabbitmq
+spec:
+  secretTargetRef:
+    - parameter: host
+      name: keda-rabbitmq
+      key: host

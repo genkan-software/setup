@@ -1,0 +1,34 @@
+# Use k8s/deploy.sh: the migrator Job must complete before the services start.
+#   k8s/base            every service scaled on CPU
+#   k8s/overlays/keda   notification scaled on the RabbitMQ queue length instead (needs KEDA)
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: genkan
+
+resources:
+  - namespace.yaml
+  - config.yaml
+  - migrator-job.yaml
+  - gateway.yaml
+  - auth.yaml
+  - lab.yaml
+  - notification.yaml
+  - ingress.yaml
+  - networkpolicy.yaml
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: genkan
+
+# One place to pin the version of every image: a tag published by the workflow (sha-1a2b3c4, 1.4.0, main, latest).
+images:
+  - name: ghcr.io/genkan-software/genkan-gateway
+    newTag: latest
+  - name: ghcr.io/genkan-software/genkan-auth
+    newTag: latest
+  - name: ghcr.io/genkan-software/genkan-lab
+    newTag: latest
+  - name: ghcr.io/genkan-software/genkan-notification
+    newTag: latest
+  - name: ghcr.io/genkan-software/genkan-migrator
+    newTag: latest

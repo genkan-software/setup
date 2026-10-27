@@ -1,0 +1,126 @@
+# Dev stack: builds every service from ./src/<service> (git submodules).
+#   export GITHUB_PACKAGES_TOKEN=ghp_xxx     # read:packages, to restore Genkan.Shared
+#   cp .env.example .env && docker compose up -d --build
+name: genkan
+
+x-service-env: &service-env
+  ASPNETCORE_ENVIRONMENT: Production
+  ASPNETCORE_HTTP_PORTS: "8080"
+
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: genkan
+      POSTGRES_USER: genkan
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U genkan -d genkan"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:4-management
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    ports:
+      - "127.0.0.1:15672:15672"   # management UI, local only
+    volumes:
+      - rabbitmq:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Owns the database schema: applies the EF Core migrations once, then exits (restart: "no").
+  # auth and notification only start after it completed successfully.
+  migrator:
+    build:
+      context: ./src/migrator
+      secrets: [github_token]
+    environment:
+      ConnectionStrings__Postgres: Host=postgres;Database=genkan;Username=genkan;Password=${POSTGRES_PASSWORD}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  auth:
+    build:
+      context: ./src/auth
+      secrets: [github_token]
+    environment:
+      <<: *service-env
+      ConnectionStrings__Postgres: Host=postgres;Database=genkan;Username=genkan;Password=${POSTGRES_PASSWORD}
+      ConnectionStrings__Redis: redis:6379,abortConnect=false
+      Seed__AdminEmail: ${ADMIN_EMAIL}
+      Seed__AdminPassword: ${ADMIN_PASSWORD}
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+
+  notification:
+    build:
+      context: ./src/notification
+      secrets: [github_token]
+    environment:
+      <<: *service-env
+      ConnectionStrings__Postgres: Host=postgres;Database=genkan;Username=genkan;Password=${POSTGRES_PASSWORD}
+      RabbitMq__Host: rabbitmq
+      RabbitMq__User: ${RABBITMQ_USER}
+      RabbitMq__Password: ${RABBITMQ_PASSWORD}
+      Firebase__Enabled: ${FIREBASE_ENABLED}
+      GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS}
+    volumes:
+      - ./secrets/firebase-service-account.json:${GOOGLE_APPLICATION_CREDENTIALS}:ro
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+
+  gateway:
+    build:
+      context: ./src/gateway
+      secrets: [github_token]
+    environment:
+      <<: *service-env
+      Services__AuthUrl: http://auth:8080
+      Swagger__Enabled: ${SWAGGER_ENABLED:-false}   # true = combined Swagger UI of auth + notification on /swagger
+      RateLimiting__Store: ${RATE_LIMIT_STORE:-Memory}   # Memory | Redis (Redis = counters shared by every gateway instance)
+      ConnectionStrings__Redis: redis:6379,abortConnect=false
+    ports:
+      - "${GATEWAY_PORT:-8080}:8080"   # the only service exposed to clients
+
+secrets:
+  github_token:
+    environment: GITHUB_PACKAGES_TOKEN   # PAT with read:packages, needed to restore Genkan.Shared
+
+volumes:
+  pgdata:
+  rabbitmq:
